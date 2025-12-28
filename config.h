@@ -6,11 +6,13 @@ public:
     User() {
         id = -1;
         name = "Î´ÃüÃû";
+        email = phone = "";
         cash = 0;
     }
     User(int id, std::string name = "Î´ÃüÃû", long long cash = 0) :id(id), name(name), cash(cash) {};
     int id;
-    std::string name;
+    std::string name, email, phone;
+
     long long cash;
 };
 

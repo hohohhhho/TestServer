@@ -130,10 +130,14 @@
     <ClCompile Include="源.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="client.h" />
+    <ClInclude Include="command.h" />
     <ClInclude Include="index_manager.h" />
     <ClInclude Include="lru.h" />
     <ClInclude Include="hash.h" />
     <ClInclude Include="config.h" />
+    <ClInclude Include="network.h" />
+    <ClInclude Include="server.h" />
     <ClInclude Include="storage_engine.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
