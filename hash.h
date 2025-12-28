@@ -1,4 +1,3 @@
-// intrusive_hash_table.hpp
 #pragma once
 #include "config.h"
 #include <vector>
@@ -10,7 +9,7 @@ private:
     int size;
     double load_factor = 0.75;
 
-    // ¹þÏ£º¯Êý
+    // ï¿½ï¿½Ï£ï¿½ï¿½ï¿½ï¿½
     unsigned int hash(const std::string& key) {
         unsigned int hash = 5381;
         for (char c : key) {
@@ -25,11 +24,11 @@ public:
     }
 
     ~IntrusiveHashTable() {
-        // ×¢Òâ£ºÕâÀï²»É¾³ý½Úµã£¬ÓÉLRUÍ³Ò»¹ÜÀí
+        // ×¢ï¿½â£ºï¿½ï¿½ï¿½ï²»É¾ï¿½ï¿½ï¿½Úµã£¬ï¿½ï¿½LRUÍ³Ò»ï¿½ï¿½ï¿½ï¿½
         clear();
     }
 
-    // ²åÈë½Úµã£¨·µ»Ø±»Ìæ»»µÄ¾É½Úµã£¬Èç¹ûÃ»ÓÐÔò·µ»Ønullptr£©
+    // ï¿½ï¿½ï¿½ï¿½Úµã£¨ï¿½ï¿½ï¿½Ø±ï¿½ï¿½æ»»ï¿½Ä¾É½Úµã£¬ï¿½ï¿½ï¿½Ã»ï¿½ï¿½ï¿½ò·µ»ï¿½nullptrï¿½ï¿½
     DataNode* insert(DataNode* node) {
         if (!node) return nullptr;
 
@@ -39,10 +38,10 @@ public:
         DataNode* current = buckets[index];
         DataNode* prev = nullptr;
 
-        // ²éÕÒÊÇ·ñÒÑ´æÔÚÏàÍ¬key
+        // ï¿½ï¿½ï¿½ï¿½ï¿½Ç·ï¿½ï¿½Ñ´ï¿½ï¿½ï¿½ï¿½ï¿½Í¬key
         while (current) {
             if (current->key == node->key) {
-                // Ìæ»»ÏÖÓÐ½Úµã
+                // ï¿½æ»»ï¿½ï¿½ï¿½Ð½Úµï¿½
                 node->hash_next = current->hash_next;
                 if (prev) {
                     prev->hash_next = node;
@@ -50,26 +49,26 @@ public:
                 else {
                     buckets[index] = node;
                 }
-                return current; // ·µ»Ø±»Ìæ»»µÄ½Úµã
+                return current; // ï¿½ï¿½ï¿½Ø±ï¿½ï¿½æ»»ï¿½Ä½Úµï¿½
             }
             prev = current;
             current = current->hash_next;
         }
 
-        // ²åÈëµ½Á´±íÍ·²¿
+        // ï¿½ï¿½ï¿½ëµ½ï¿½ï¿½ï¿½ï¿½Í·ï¿½ï¿½
         node->hash_next = buckets[index];
         buckets[index] = node;
         size++;
 
-        // ¼ì²éÊÇ·ñÐèÒªÀ©ÈÝ
+        // ï¿½ï¿½ï¿½ï¿½Ç·ï¿½ï¿½ï¿½Òªï¿½ï¿½ï¿½ï¿½
         if (size > capacity * load_factor) {
             resize(capacity * 2);
         }
 
-        return nullptr; // Ã»ÓÐÌæ»»ÈÎºÎ½Úµã
+        return nullptr; // Ã»ï¿½ï¿½ï¿½æ»»ï¿½ÎºÎ½Úµï¿½
     }
 
-    // ²éÕÒ½Úµã
+    // ï¿½ï¿½ï¿½Ò½Úµï¿½
     DataNode* find(const std::string& key) {
         unsigned int index = hash(key);
         DataNode* node = buckets[index];
@@ -83,7 +82,7 @@ public:
         return nullptr;
     }
 
-    // É¾³ý½Úµã
+    // É¾ï¿½ï¿½ï¿½Úµï¿½
     DataNode* remove(const std::string& key) {
         unsigned int index = hash(key);
         DataNode* node = buckets[index];
@@ -108,7 +107,7 @@ public:
         return nullptr;
     }
 
-    // À©ÈÝ
+    // ï¿½ï¿½ï¿½ï¿½
     void resize(int new_capacity) {
         std::vector<DataNode*> new_buckets(new_capacity, nullptr);
         int old_capacity = capacity;
@@ -121,7 +120,7 @@ public:
                 unsigned int new_index = hash(node->key);
                 node->hash_index = new_index;
 
-                // ²åÈëµ½ÐÂÍ°
+                // ï¿½ï¿½ï¿½ëµ½ï¿½ï¿½Í°
                 node->hash_next = new_buckets[new_index];
                 new_buckets[new_index] = node;
 
@@ -132,7 +131,7 @@ public:
         buckets = std::move(new_buckets);
     }
 
-    // Çå¿Õ£¨²»É¾³ý½Úµã£©
+    // ï¿½ï¿½Õ£ï¿½ï¿½ï¿½É¾ï¿½ï¿½ï¿½Úµã£©
     void clear() {
         for (auto& bucket : buckets) {
             bucket = nullptr;

@@ -1,4 +1,3 @@
-// intrusive_lru.hpp
 #pragma once
 #include "config.h"
 #include <unordered_map>
@@ -11,11 +10,11 @@ private:
     int max_size;
     std::unordered_map<std::string, DataNode*> node_map;
 
-    // ½«½ÚµãÒÆµ½Î²²¿£¨×î½üÊ¹ÓÃ£©
+    // ï¿½ï¿½ï¿½Úµï¿½ï¿½Æµï¿½Î²ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê¹ï¿½Ã£ï¿½
     void move_to_tail(DataNode* node) {
         if (node == tail || !node) return;
 
-        // ´Óµ±Ç°Î»ÖÃÒÆ³ý
+        // ï¿½Óµï¿½Ç°Î»ï¿½ï¿½ï¿½Æ³ï¿½
         if (node == head) {
             head = head->lru_next;
             if (head) head->lru_prev = nullptr;
@@ -25,7 +24,7 @@ private:
             if (node->lru_next) node->lru_next->lru_prev = node->lru_prev;
         }
 
-        // Ìí¼Óµ½Î²²¿
+        // ï¿½ï¿½ï¿½Óµï¿½Î²ï¿½ï¿½
         if (tail) {
             tail->lru_next = node;
             node->lru_prev = tail;
@@ -36,7 +35,7 @@ private:
         if (!head) head = node;
     }
 
-    // ÒÆ³ýÍ·²¿½Úµã£¨×î¾ÃÎ´Ê¹ÓÃ£©
+    // ï¿½Æ³ï¿½Í·ï¿½ï¿½ï¿½Úµã£¨ï¿½ï¿½ï¿½Î´Ê¹ï¿½Ã£ï¿½
     DataNode* evict_head() {
         if (!head) return nullptr;
 
@@ -48,7 +47,7 @@ private:
             head->lru_prev = nullptr;
         }
         else {
-            tail = nullptr; // Á´±íÎª¿Õ
+            tail = nullptr; // ï¿½ï¿½ï¿½ï¿½Îªï¿½ï¿½
         }
 
         evicted->lru_prev = nullptr;
@@ -65,27 +64,27 @@ public:
         clear();
     }
 
-    // Ìí¼Ó»ò¸üÐÂ½Úµã
+    // ï¿½ï¿½ï¿½Ó»ï¿½ï¿½ï¿½Â½Úµï¿½
     DataNode* put(const std::string& key, User value) {
         DataNode* evicted = nullptr;
 
         auto it = node_map.find(key);
         if (it != node_map.end()) {
-            // ¸üÐÂÏÖÓÐ½Úµã
+            // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð½Úµï¿½
             it->second->value = value;
             move_to_tail(it->second);
             return nullptr;
         }
 
-        // ´´½¨ÐÂ½Úµã
+        // ï¿½ï¿½ï¿½ï¿½ï¿½Â½Úµï¿½
         DataNode* new_node = new DataNode(key, value);
 
-        // Èç¹ûLRUÒÑÂú£¬ÇýÖð×î¾ÃÎ´Ê¹ÓÃµÄ½Úµã
+        // ï¿½ï¿½ï¿½LRUï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Î´Ê¹ï¿½ÃµÄ½Úµï¿½
         if (current_size >= max_size) {
             evicted = evict_head();
         }
 
-        // Ìí¼ÓÐÂ½Úµãµ½Î²²¿
+        // ï¿½ï¿½ï¿½ï¿½ï¿½Â½Úµãµ½Î²ï¿½ï¿½
         if (!head) {
             head = tail = new_node;
         }
@@ -98,10 +97,10 @@ public:
         node_map[key] = new_node;
         current_size++;
 
-        return evicted; // ·µ»Ø±»ÇýÖðµÄ½Úµã£¨ÐèÒª´Ó¹þÏ£±íÖÐÒÆ³ý£©
+        return evicted; // ï¿½ï¿½ï¿½Ø±ï¿½ï¿½ï¿½ï¿½ï¿½Ä½Úµã£¨ï¿½ï¿½Òªï¿½Ó¹ï¿½Ï£ï¿½ï¿½ï¿½ï¿½ï¿½Æ³ï¿½ï¿½ï¿½
     }
 
-    // »ñÈ¡½Úµã
+    // ï¿½ï¿½È¡ï¿½Úµï¿½
     DataNode* get(const std::string& key) {
         auto it = node_map.find(key);
         if (it != node_map.end()) {
@@ -111,7 +110,7 @@ public:
         return nullptr;
     }
 
-    // ÒÆ³ý½Úµã
+    // ï¿½Æ³ï¿½ï¿½Úµï¿½
     DataNode* remove(const std::string& key) {
         auto it = node_map.find(key);
         if (it == node_map.end()) return nullptr;
@@ -119,7 +118,7 @@ public:
         DataNode* node = it->second;
         node_map.erase(it);
 
-        // ´ÓÁ´±íÖÐÒÆ³ý
+        // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ³ï¿½
         if (node == head && node == tail) {
             head = tail = nullptr;
         }
@@ -143,7 +142,7 @@ public:
         return node;
     }
 
-    // Çå¿Õ²¢É¾³ýËùÓÐ½Úµã
+    // ï¿½ï¿½Õ²ï¿½É¾ï¿½ï¿½ï¿½ï¿½ï¿½Ð½Úµï¿½
     void clear() {
         DataNode* node = head;
         while (node) {

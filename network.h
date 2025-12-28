@@ -1,247 +1,334 @@
 #pragma once
-#include "client_connection.hpp"
-#include "storage_engine.h"
+#include <functional>
+#include <memory>
 #include <vector>
-#include <map>
+#include <unordered_map>
 #include <poll.h>
+#include <atomic>
+#include <cerrno>
+#include <unordered_map>
+#include <sys/epoll.h>
 #include <unistd.h>
-#include <iostream>
+#include <atomic>
 
-class PollServer {
+
+// äº‹ä»¶ç±»å‹
+enum class EventType {
+    READ = 1,
+    WRITE = 2,
+    ERROR = 4
+};
+
+// äº‹ä»¶å¤„ç†å™¨æ¥å£
+class EventHandler {
+public:
+    virtual ~EventHandler() = default;
+    
+    // å¤„ç†äº‹ä»¶
+    virtual void handle_event(int fd, EventType events) = 0;
+    
+    // è·å–æ–‡ä»¶æè¿°ç¬¦
+    virtual int get_fd() const = 0;
+};
+
+// è¿æ¥å¤„ç†å™¨ï¼ˆä¸å†ç»§æ‰¿EventHandlerï¼‰
+class ConnectionHandler {
+public:
+    virtual ~ConnectionHandler() = default;
+    
+    // å½“æ–°è¿æ¥å»ºç«‹æ—¶è°ƒç”¨
+    virtual void on_connected(int client_fd, const sockaddr_in& addr) = 0;
+    
+    // å½“æ”¶åˆ°æ•°æ®æ—¶è°ƒç”¨
+    virtual void on_data(int client_fd, const char* data, size_t len) = 0;
+    
+    // å½“è¿æ¥å…³é—­æ—¶è°ƒç”¨
+    virtual void on_closed(int client_fd) = 0;
+    
+    // å‘é€æ•°æ®ï¼ˆå¯é€‰ï¼‰
+    virtual bool send_data(int client_fd, const char* data, size_t len) = 0;
+};
+
+// äº‹ä»¶å¾ªç¯æ¥å£
+class EventLoop {
+public:
+    virtual ~EventLoop() = default;
+    
+    // æ·»åŠ äº‹ä»¶ç›‘å¬
+    virtual bool add_event(int fd, EventType events, EventHandler* handler) = 0;
+    
+    // ä¿®æ”¹äº‹ä»¶
+    virtual bool mod_event(int fd, EventType events, EventHandler* handler) = 0;
+    
+    // åˆ é™¤äº‹ä»¶
+    virtual bool del_event(int fd) = 0;
+    
+    // è¿è¡Œäº‹ä»¶å¾ªç¯
+    virtual void run() = 0;
+    
+    // åœæ­¢äº‹ä»¶å¾ªç¯
+    virtual void stop() = 0;
+    
+    // åˆ›å»ºäº‹ä»¶å¾ªç¯å®ä¾‹
+    static std::unique_ptr<EventLoop> create(const std::string& type);
+};
+
+class PollLoop : public EventLoop {
 private:
-    int listen_fd;
-    int port;
-    bool running;
-    StorageEngine storage;
-    ProtocolHandler protocol_handler;
-
-    // pollÏà¹Ø
-    std::vector<pollfd> poll_fds;
-    std::map<int, ClientConnection*> clients;
-
-    // Ìí¼ÓÎÄ¼şÃèÊö·ûµ½poll
-    void add_to_poll(int fd, short events) {
+    std::vector<pollfd> poll_fds_;
+    std::unordered_map<int, EventHandler*> handlers_;
+    std::atomic<bool> running_{false};
+    
+    // æŸ¥æ‰¾fdåœ¨poll_fds_ä¸­çš„ç´¢å¼•
+    int find_fd_index(int fd) {
+        for (size_t i = 0; i < poll_fds_.size(); i++) {
+            if (poll_fds_[i].fd == fd) {
+                return static_cast<int>(i);
+            }
+        }
+        return -1;
+    }
+    
+    // è½¬æ¢ä¸ºpolläº‹ä»¶
+    short events_to_poll(EventType events) {
+        short result = 0;
+        if (static_cast<int>(events) & static_cast<int>(EventType::READ)) {
+            result |= POLLIN;
+        }
+        if (static_cast<int>(events) & static_cast<int>(EventType::WRITE)) {
+            result |= POLLOUT;
+        }
+        if (static_cast<int>(events) & static_cast<int>(EventType::ERROR)) {
+            result |= POLLERR;
+        }
+        return result;
+    }
+    
+    // è½¬æ¢ä¸ºäº‹ä»¶ç±»å‹
+    EventType poll_to_events(short revents) {
+        int events = 0;
+        if (revents & POLLIN) events |= static_cast<int>(EventType::READ);
+        if (revents & POLLOUT) events |= static_cast<int>(EventType::WRITE);
+        if (revents & (POLLERR | POLLHUP | POLLNVAL)) {
+            events |= static_cast<int>(EventType::ERROR);
+        }
+        return static_cast<EventType>(events);
+    }
+    
+public:
+    PollLoop() = default;
+    ~PollLoop() override = default;
+    
+    bool add_event(int fd, EventType events, EventHandler* handler) override {
+        if (handlers_.find(fd) != handlers_.end()) {
+            return false;  // å·²å­˜åœ¨
+        }
+        
         pollfd pfd;
         pfd.fd = fd;
-        pfd.events = events;
+        pfd.events = events_to_poll(events);
         pfd.revents = 0;
-        poll_fds.push_back(pfd);
-    }
-
-    // ´ÓpollÖĞÒÆ³ıÎÄ¼şÃèÊö·û
-    void remove_from_poll(int fd) {
-        for (auto it = poll_fds.begin(); it != poll_fds.end(); ++it) {
-            if (it->fd == fd) {
-                poll_fds.erase(it);
-                break;
-            }
-        }
-    }
-
-    // ´¦ÀíĞÂÁ¬½Ó
-    void handle_new_connection() {
-        struct sockaddr_in client_addr;
-        socklen_t client_len = sizeof(client_addr);
-
-        int client_fd = accept(listen_fd, (struct sockaddr*)&client_addr, &client_len);
-        if (client_fd < 0) {
-            perror("accept failed");
-            return;
-        }
-
-        // ÉèÖÃ·Ç×èÈû
-        if (!NetworkUtils::set_nonblocking(client_fd)) {
-            close(client_fd);
-            return;
-        }
-
-        // »ñÈ¡¿Í»§¶ËµØÖ·
-        std::string client_address = NetworkUtils::get_client_address(client_fd);
-
-        // ´´½¨¿Í»§¶ËÁ¬½Ó
-        ClientConnection* client = new ClientConnection(client_fd, client_address, protocol_handler);
-
-        // Ìí¼Óµ½pollºÍclientsÓ³Éä
-        add_to_poll(client_fd, POLLIN | POLLOUT);
-        clients[client_fd] = client;
-
-        std::cout << "ĞÂ¿Í»§¶ËÁ¬½Ó: " << client_address
-            << " (FD: " << client_fd << ")" << std::endl;
-    }
-
-    // ´¦Àí¿Í»§¶ËÊı¾İ
-    void handle_client_data(int fd) {
-        auto it = clients.find(fd);
-        if (it == clients.end()) {
-            return;
-        }
-
-        ClientConnection* client = it->second;
-
-        // ½ÓÊÕÊı¾İ
-        if (!client->receive()) {
-            // ¿Í»§¶Ë¶Ï¿ªÁ¬½Ó
-            std::cout << "¿Í»§¶Ë¶Ï¿ªÁ¬½Ó: " << client->get_address() << std::endl;
-            remove_client(fd);
-            return;
-        }
-
-        // ´¦Àí½ÓÊÕµ½µÄÊı¾İ
-        client->process_data();
-    }
-
-    // ´¦Àí¿Í»§¶Ë·¢ËÍ
-    void handle_client_send(int fd) {
-        auto it = clients.find(fd);
-        if (it == clients.end()) {
-            return;
-        }
-
-        ClientConnection* client = it->second;
-
-        if (client->has_data_to_send()) {
-            if (!client->send()) {
-                // ·¢ËÍÊ§°Ü£¬¶Ï¿ªÁ¬½Ó
-                std::cout << "·¢ËÍÊ§°Ü£¬¶Ï¿ªÁ¬½Ó: " << client->get_address() << std::endl;
-                remove_client(fd);
-            }
-        }
-    }
-
-    // ÒÆ³ı¿Í»§¶Ë
-    void remove_client(int fd) {
-        auto it = clients.find(fd);
-        if (it != clients.end()) {
-            ClientConnection* client = it->second;
-
-            // ´ÓpollÖĞÒÆ³ı
-            remove_from_poll(fd);
-
-            // ¹Ø±ÕÌ×½Ó×Ö
-            client->close();
-
-            // É¾³ı¿Í»§¶Ë¶ÔÏó
-            delete client;
-
-            // ´ÓÓ³ÉäÖĞÒÆ³ı
-            clients.erase(it);
-        }
-    }
-
-    // ÇåÀí×ÊÔ´
-    void cleanup() {
-        for (auto& [fd, client] : clients) {
-            delete client;
-        }
-        clients.clear();
-        poll_fds.clear();
-
-        if (listen_fd != -1) {
-            close(listen_fd);
-            listen_fd = -1;
-        }
-    }
-
-public:
-    PollServer(int p = DEFAULT_PORT,
-        int hash_size = 1024,
-        int lru_size = 100)
-        : port(p), running(false), listen_fd(-1),
-        storage(hash_size, lru_size, lru_size > 0),
-        protocol_handler(storage) {}
-
-    ~PollServer() {
-        stop();
-    }
-
-    // Æô¶¯·şÎñÆ÷
-    bool start() {
-        // ´´½¨¼àÌıÌ×½Ó×Ö
-        listen_fd = NetworkUtils::create_listen_socket(port);
-        if (listen_fd < 0) {
-            return false;
-        }
-
-        std::cout << "·şÎñÆ÷Æô¶¯ÔÚ¶Ë¿Ú " << port << std::endl;
-        std::cout << "Ê¹ÓÃpollÍøÂçÄ£ĞÍ" << std::endl;
-
-        // Ìí¼Ó¼àÌıÌ×½Ó×Öµ½poll
-        add_to_poll(listen_fd, POLLIN);
-
-        running = true;
-        event_loop();
-
+        
+        poll_fds_.push_back(pfd);
+        handlers_[fd] = handler;
         return true;
     }
-
-    // Í£Ö¹·şÎñÆ÷
-    void stop() {
-        running = false;
-        cleanup();
+    
+    bool mod_event(int fd, EventType events, EventHandler* handler) override {
+        auto it = handlers_.find(fd);
+        if (it == handlers_.end()) {
+            return false;
+        }
+        
+        int index = find_fd_index(fd);
+        if (index == -1) {
+            return false;
+        }
+        
+        poll_fds_[index].events = events_to_poll(events);
+        handlers_[fd] = handler;
+        return true;
     }
-
-private:
-    // ÊÂ¼şÑ­»·
-    void event_loop() {
-        while (running) {
-            // µ÷ÓÃpoll
-            int ready = poll(poll_fds.data(), poll_fds.size(), -1);
-
+    
+    bool del_event(int fd) override {
+        auto it = handlers_.find(fd);
+        if (it == handlers_.end()) {
+            return false;
+        }
+        
+        int index = find_fd_index(fd);
+        if (index != -1) {
+            poll_fds_.erase(poll_fds_.begin() + index);
+        }
+        
+        handlers_.erase(fd);
+        return true;
+    }
+    
+    void run() override {
+        running_ = true;
+        
+        while (running_) {
+            // è°ƒç”¨pollï¼Œè¶…æ—¶æ—¶é—´1000ms
+            int ready = poll(poll_fds_.data(), poll_fds_.size(), 1000);
+            
             if (ready < 0) {
-                if (errno == EINTR) {
-                    continue;  // ±»ĞÅºÅÖĞ¶Ï
-                }
-                perror("poll failed");
-                break;
+                if (errno == EINTR) continue;
+                break;  // å‘ç”Ÿé”™è¯¯
             }
-
+            
             if (ready == 0) {
-                continue;  // ³¬Ê±
+                continue;  // è¶…æ—¶
             }
-
-            // ´¦Àí¾ÍĞ÷µÄÎÄ¼şÃèÊö·û
-            for (size_t i = 0; i < poll_fds.size(); ++i) {
-                if (poll_fds[i].revents == 0) {
-                    continue;
-                }
-
-                // ¼ì²é´íÎó
-                if (poll_fds[i].revents & (POLLERR | POLLHUP | POLLNVAL)) {
-                    if (poll_fds[i].fd == listen_fd) {
-                        std::cerr << "¼àÌıÌ×½Ó×Ö´íÎó" << std::endl;
-                        running = false;
-                        break;
+            
+            // å¤„ç†å°±ç»ªçš„äº‹ä»¶
+            for (size_t i = 0; i < poll_fds_.size(); i++) {
+                if (poll_fds_[i].revents != 0) {
+                    int fd = poll_fds_[i].fd;
+                    EventType events = poll_to_events(poll_fds_[i].revents);
+                    
+                    auto it = handlers_.find(fd);
+                    if (it != handlers_.end()) {
+                        it->second->handle_event(fd, events);
                     }
-                    else {
-                        // ¿Í»§¶Ë´íÎó
-                        remove_client(poll_fds[i].fd);
-                        continue;
-                    }
-                }
-
-                // ¼àÌıÌ×½Ó×Ö¿É¶Á£¨ĞÂÁ¬½Ó£©
-                if (poll_fds[i].fd == listen_fd) {
-                    if (poll_fds[i].revents & POLLIN) {
-                        handle_new_connection();
-                    }
-                }
-                // ¿Í»§¶ËÌ×½Ó×Ö
-                else {
-                    int fd = poll_fds[i].fd;
-
-                    // ¿É¶Á
-                    if (poll_fds[i].revents & POLLIN) {
-                        handle_client_data(fd);
-                    }
-
-                    // ¿ÉĞ´
-                    if (poll_fds[i].revents & POLLOUT) {
-                        handle_client_send(fd);
+                    
+                    if (--ready <= 0) {
+                        break;  // æ‰€æœ‰å°±ç»ªäº‹ä»¶å·²å¤„ç†
                     }
                 }
             }
         }
+    }
+    
+    void stop() override {
+        running_ = false;
+    }
+};
 
-        std::cout << "·şÎñÆ÷Í£Ö¹" << std::endl;
+
+
+class EpollLoop : public EventLoop {
+private:
+    int epoll_fd_{-1};
+    std::unordered_map<int, EventHandler*> handlers_;
+    std::atomic<bool> running_{false};
+    static const int MAX_EVENTS = 64;
+    
+    // è½¬æ¢ä¸ºepolläº‹ä»¶
+    uint32_t events_to_epoll(EventType events) {
+        uint32_t result = 0;
+        if (static_cast<int>(events) & static_cast<int>(EventType::READ)) {
+            result |= EPOLLIN;
+        }
+        if (static_cast<int>(events) & static_cast<int>(EventType::WRITE)) {
+            result |= EPOLLOUT;
+        }
+        if (static_cast<int>(events) & static_cast<int>(EventType::ERROR)) {
+            result |= EPOLLERR;
+        }
+        return result;
+    }
+    
+    // è½¬æ¢ä¸ºäº‹ä»¶ç±»å‹
+    EventType epoll_to_events(uint32_t events) {
+        int result = 0;
+        if (events & EPOLLIN) result |= static_cast<int>(EventType::READ);
+        if (events & EPOLLOUT) result |= static_cast<int>(EventType::WRITE);
+        if (events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
+            result |= static_cast<int>(EventType::ERROR);
+        }
+        return static_cast<EventType>(result);
+    }
+    
+public:
+    EpollLoop() {
+        epoll_fd_ = epoll_create1(0);
+    }
+    
+    ~EpollLoop() override {
+        if (epoll_fd_ != -1) {
+            close(epoll_fd_);
+        }
+    }
+    
+    bool add_event(int fd, EventType events, EventHandler* handler) override {
+        if (handlers_.find(fd) != handlers_.end()) {
+            return false;
+        }
+        
+        epoll_event ev;
+        ev.events = events_to_epoll(events);
+        ev.data.fd = fd;
+        
+        if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, fd, &ev) < 0) {
+            return false;
+        }
+        
+        handlers_[fd] = handler;
+        return true;
+    }
+    
+    bool mod_event(int fd, EventType events, EventHandler* handler) override {
+        auto it = handlers_.find(fd);
+        if (it == handlers_.end()) {
+            return false;
+        }
+        
+        epoll_event ev;
+        ev.events = events_to_epoll(events);
+        ev.data.fd = fd;
+        
+        if (epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, fd, &ev) < 0) {
+            return false;
+        }
+        
+        handlers_[fd] = handler;
+        return true;
+    }
+    
+    bool del_event(int fd) override {
+        auto it = handlers_.find(fd);
+        if (it == handlers_.end()) {
+            return false;
+        }
+        
+        if (epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr) < 0) {
+            return false;
+        }
+        
+        handlers_.erase(fd);
+        return true;
+    }
+    
+    void run() override {
+        if (epoll_fd_ < 0) {
+            return;
+        }
+        
+        running_ = true;
+        epoll_event events[MAX_EVENTS];
+        
+        while (running_) {
+            int ready = epoll_wait(epoll_fd_, events, MAX_EVENTS, 1000);
+            
+            if (ready < 0) {
+                if (errno == EINTR) continue;
+                break;
+            }
+            
+            for (int i = 0; i < ready; i++) {
+                int fd = events[i].data.fd;
+                EventType evt = epoll_to_events(events[i].events);
+                
+                auto it = handlers_.find(fd);
+                if (it != handlers_.end()) {
+                    it->second->handle_event(fd, evt);
+                }
+            }
+        }
+    }
+    
+    void stop() override {
+        running_ = false;
     }
 };
